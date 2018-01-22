@@ -7,6 +7,7 @@ import {
     CONFERENCE_LEFT
 } from '../conference';
 import { MiddlewareRegistry } from '../redux';
+import { playSound, registerSound, unregisterSound } from '../sounds';
 
 import { localParticipantIdChanged } from './actions';
 import {
@@ -14,13 +15,24 @@ import {
     MUTE_REMOTE_PARTICIPANT,
     PARTICIPANT_DISPLAY_NAME_CHANGED,
     PARTICIPANT_JOINED,
+    PARTICIPANT_LEFT,
     PARTICIPANT_UPDATED
 } from './actionTypes';
-import { LOCAL_PARTICIPANT_DEFAULT_ID } from './constants';
+import {
+    LOCAL_PARTICIPANT_DEFAULT_ID,
+    PARTICIPANT_JOINED_SOUND_ID,
+    PARTICIPANT_LEFT_SOUND_ID
+} from './constants';
 import {
     getAvatarURLByParticipantId,
-    getLocalParticipant
+    getLocalParticipant,
+    getParticipantCount
 } from './functions';
+import { APP_WILL_MOUNT, APP_WILL_UNMOUNT } from '../../app';
+import {
+    PARTICIPANT_JOINED_SRC,
+    PARTICIPANT_LEFT_SRC
+} from './sounds';
 
 declare var APP: Object;
 
@@ -34,7 +46,18 @@ declare var APP: Object;
 MiddlewareRegistry.register(store => next => action => {
     const { conference } = store.getState()['features/base/conference'];
 
+    if (action.type === PARTICIPANT_JOINED
+        || action.type === PARTICIPANT_LEFT) {
+        _maybePlaySounds(store, action);
+    }
+
     switch (action.type) {
+    case APP_WILL_MOUNT:
+        _registerSounds(store);
+        break;
+    case APP_WILL_UNMOUNT:
+        _unregisterSounds(store);
+        break;
     case CONFERENCE_JOINED:
         store.dispatch(localParticipantIdChanged(action.conference.myUserId()));
         break;
@@ -100,3 +123,59 @@ MiddlewareRegistry.register(store => next => action => {
 
     return next(action);
 });
+
+/**
+ * Plays sounds when participants join/leave conference.
+ *
+ * @param {Store} store - The Redux store.
+ * @param {Action} action - The Redux action. Should be either
+ * {@link PARTICIPANT_JOINED} or {@link PARTICIPANT_LEFT}.
+ * @private
+ * @returns {void}
+ */
+function _maybePlaySounds({ getState, dispatch }, action) {
+    const state = getState();
+    const { startAudioMuted } = state['features/base/config'];
+
+    // We're not playing sounds for local participant
+    // nor when the user is joining past the "startAudioMuted" limit.
+    // The intention there was to not play user joined notification in big
+    // conferences where 100th person is joining.
+    if (!action.participant.local
+        && (!startAudioMuted
+            || getParticipantCount(state) < startAudioMuted)) {
+        if (action.type === PARTICIPANT_JOINED) {
+            dispatch(playSound(PARTICIPANT_JOINED_SOUND_ID));
+        } else if (action.type === PARTICIPANT_LEFT) {
+            dispatch(playSound(PARTICIPANT_LEFT_SOUND_ID));
+        }
+    }
+}
+
+/**
+ * FIXME.
+ *
+ * @param {Store} store - FIXME.
+ * @private
+ * @returns {void}
+ */
+function _registerSounds({ dispatch }) {
+    dispatch(
+        registerSound(PARTICIPANT_JOINED_SOUND_ID, PARTICIPANT_JOINED_SRC));
+    dispatch(
+        registerSound(PARTICIPANT_LEFT_SOUND_ID, PARTICIPANT_LEFT_SRC));
+}
+
+/**
+ * FIXME.
+ *
+ * @param {Store} store - FIXME.
+ * @private
+ * @returns {void}
+ */
+function _unregisterSounds({ dispatch }) {
+    dispatch(
+        unregisterSound(PARTICIPANT_JOINED_SOUND_ID, PARTICIPANT_JOINED_SRC));
+    dispatch(
+        unregisterSound(PARTICIPANT_LEFT_SOUND_ID, PARTICIPANT_LEFT_SRC));
+}
